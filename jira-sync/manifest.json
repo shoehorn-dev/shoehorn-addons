@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "kind": "addon",
+  "metadata": {
+    "slug": "jira-sync",
+    "name": "Jira Sync",
+    "version": "0.1.0",
+    "description": "Syncs Jira issues into the Shoehorn catalog. Fetches issues via Jira REST API and creates catalog entities with links back to Jira.",
+    "author": {
+      "name": "Shoehorn Team"
+    },
+    "category": "integrations",
+    "tier": "free"
+  },
+  "addon": {
+    "tier": "scripted",
+    "runtime": "quickjs",
+    "permissions": {
+      "network": [{ "url": "https://*.atlassian.net/*" }],
+      "shoehorn": ["entities:read", "entities:write"]
+    },
+    "sync": {
+      "schedule": "*/5 * * * *",
+      "function": "sync"
+    },
+    "frontend": {
+      "widgets": [
+        {
+          "id": "jira-issues",
+          "label": "Jira Issues",
+          "componentName": "JiraIssuesWidget",
+          "size": {
+            "default": { "w": 4, "h": 3 },
+            "min": { "w": 2, "h": 2 },
+            "max": { "w": 6, "h": 6 }
+          }
+        }
+      ]
+    },
+    "config": {
+      "jira_base_url": {
+        "label": "Jira Base URL",
+        "type": "text",
+        "required": true,
+        "placeholder": "https://yourorg.atlassian.net"
+      },
+      "jira_email": {
+        "label": "Jira Email",
+        "type": "text",
+        "required": true,
+        "placeholder": "user@company.com"
+      },
+      "jira_api_token": {
+        "label": "Jira API Token",
+        "type": "secret",
+        "required": true
+      },
+      "jira_project": {
+        "label": "Jira Project Key",
+        "type": "text",
+        "required": false,
+        "placeholder": "PROJ"
+      }
+    }
+  }
+}
