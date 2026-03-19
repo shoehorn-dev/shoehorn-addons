@@ -16,7 +16,7 @@ Addons are published to a running Shoehorn instance via the CLI:
 cd jira-sync
 npm install
 npm run build
-shoehorn addon publish
+shoehorn addon publish --dir .
 ```
 
 This uploads the `manifest.json`, `dist/addon.js` (backend), and `dist/frontend.js` (frontend) to the platform. Admins then configure secrets (API tokens, URLs) through the Admin UI at `/admin/addons/{slug}`.
@@ -34,7 +34,7 @@ Create a key with these scopes at **Profile > Security > API Keys** using the "A
 
 ```bash
 shoehorn auth login --server https://your-instance.example.com --token shp_svc_...
-shoehorn addon publish
+shoehorn addon publish --dir .
 ```
 
 ## Development

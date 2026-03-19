@@ -45,4 +45,6 @@ esbuild.config.mjs              # Dual-bundle build config
 
 ```bash
 shoehorn addon publish --dir .
+# Or from the repo root:
+# shoehorn addon publish --dir addons/jira-sync
 ```
