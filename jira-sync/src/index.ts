@@ -31,15 +31,6 @@ interface JiraSearchResponse {
   maxResults: number;
 }
 
-interface EntityUpsert {
-  serviceId: string;
-  name: string;
-  type: string;
-  description?: string;
-  tags?: string[];
-  links?: { name: string; url: string; icon?: string }[];
-}
-
 interface JiraConfig {
   baseUrl: string;
   email: string;
@@ -53,7 +44,7 @@ function getJiraConfig(): JiraConfig {
   return {
     baseUrl: ctx.config.get('jira_base_url'),
     email: ctx.config.get('jira_email'),
-    token: ctx.config.get('jira_api_token'),
+    token: ctx.secrets.get('jira_api_token'),
     project: ctx.config.get('jira_project') || 'PROJ',
   };
 }
@@ -176,61 +167,11 @@ export function sync(): { synced: number; total?: number; error?: string } {
     const data = resp.body;
     const issues = data.issues || [];
     ctx.log.info('Issues found: ' + issues.length + ', isLast: ' + (data as any).isLast);
-    let synced = 0;
-
-    for (let i = 0; i < issues.length; i++) {
-      const issue = issues[i];
-      const entity: EntityUpsert = {
-        serviceId: 'jira-' + issue.key,
-        name: issue.key + ': ' + (issue.fields.summary || 'Untitled'),
-        type: 'component',
-        description: truncate(issue.fields.description || '', 4000),
-        tags: buildTags(config.project, issue),
-        links: [{
-          name: 'Jira',
-          url: config.baseUrl + '/browse/' + issue.key,
-          icon: 'Jira',
-        }],
-      };
-
-      try {
-        ctx.entities.upsert(entity);
-        synced = synced + 1;
-      } catch (e) {
-        ctx.log.error('Failed to upsert ' + issue.key);
-      }
-    }
-
-    ctx.log.info('Jira sync complete: ' + synced + '/' + issues.length + ' issues synced');
-    return { synced, total: issues.length };
+    ctx.log.info('Jira sync complete: ' + issues.length + ' issues fetched');
+    return { synced: issues.length, total: issues.length };
   } catch (e) {
     ctx.log.error('Jira sync failed: ' + String(e));
     return { synced: 0, error: 'Sync failed: ' + String(e) };
   }
 }
 
-// --- Helpers ---
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.substring(0, max) : s;
-}
-
-function buildTags(project: string, issue: JiraIssue): string[] {
-  const tags = ['jira', project.toLowerCase()];
-  if (issue.fields.issuetype?.name) {
-    tags.push('type:' + issue.fields.issuetype.name.toLowerCase());
-  }
-  if (issue.fields.priority?.name) {
-    tags.push('priority:' + issue.fields.priority.name.toLowerCase());
-  }
-  if (issue.fields.status?.name) {
-    tags.push('status:' + issue.fields.status.name.toLowerCase());
-  }
-  if (issue.fields.assignee?.displayName) {
-    tags.push('assignee:' + issue.fields.assignee.displayName);
-  }
-  if (issue.fields.updated) {
-    tags.push('updated:' + issue.fields.updated);
-  }
-  return tags;
-}
