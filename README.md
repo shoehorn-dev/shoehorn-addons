@@ -51,5 +51,5 @@ npm run typecheck  # Verify types
 ## Creating a new addon
 
 1. Create a new directory: `mkdir my-addon && cd my-addon`
-2. Follow the Getting Started guide in the [SDK README](../sdk/README.md)
+2. Follow the Getting Started guide in the [SDK README](https://github.com/shoehorn-dev/shoehorn-sdk)
 3. Add it to the table above
