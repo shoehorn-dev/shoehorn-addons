@@ -1,8 +1,5 @@
 # Shoehorn Addons
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/shoehorn-dev/shoehorn-addons/badge)](https://scorecard.dev/viewer/?uri=github.com/shoehorn-dev/shoehorn-addons)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9952/badge)](https://www.bestpractices.dev/projects/9952)
-
 Official addons that ship with the Shoehorn platform. Each subdirectory is a self-contained addon with its own `manifest.json`, build config, and source code.
 
 ## Addons
