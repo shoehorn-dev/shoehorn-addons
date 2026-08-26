@@ -2,7 +2,7 @@
  * JiraIssuesWidget - Dashboard widget using Shoehorn addon SDK styles
  */
 
-import { injectStyles } from '@shoehorn/addon-sdk/frontend';
+import { injectStyles, esc, timeAgo } from '@shoehorn-dev/addon-sdk/frontend';
 
 interface JiraIssue {
 	key: string;
@@ -23,28 +23,6 @@ interface WidgetProps {
 		config?: Record<string, unknown>;
 		size?: { w: number; h: number };
 	};
-}
-
-function esc(s: string): string {
-	const el = document.createElement('span');
-	el.textContent = s;
-	return el.innerHTML;
-}
-
-function formatUpdated(iso: string): string {
-	if (!iso) return '';
-	try {
-		const d = new Date(iso);
-		const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-		if (mins < 60) return `${mins}m ago`;
-		const hours = Math.floor(mins / 60);
-		if (hours < 24) return `${hours}h ago`;
-		const days = Math.floor(hours / 24);
-		if (days < 30) return `${days}d ago`;
-		return d.toLocaleDateString();
-	} catch {
-		return iso;
-	}
 }
 
 function priorityBadge(p: string): string {
@@ -162,7 +140,7 @@ export function createWidget({ target, props }: WidgetProps): { destroy: () => v
 						<td>${i.priority ? priorityBadge(i.priority) : ''}</td>
 						<td>${i.status ? statusBadge(i.status) : ''}</td>
 						<td class="sh-text-muted">${esc(i.assignee || '\u2014')}</td>
-						<td class="sh-text-muted" title="${esc(i.updated)}">${formatUpdated(i.updated)}</td>
+						<td class="sh-text-muted" title="${esc(i.updated)}">${timeAgo(i.updated)}</td>
 					</tr>`).join('')}</tbody>
 				</table>
 			</div>

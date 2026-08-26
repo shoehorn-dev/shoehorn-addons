@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@shoehorn/addon-sdk": "file:../../sdk",
+    "@shoehorn-dev/addon-sdk": "file:../../shoehorn-sdk",
     "esbuild": "^0.21.0",
     "typescript": "^5.9.3"
   }

@@ -7,10 +7,10 @@
  * Runtime contract:
  * - Functions receive JS objects as arguments (not JSON strings)
  * - Functions return JS objects (runtime wraps in JSON.stringify automatically)
- * - Host functions available: ctx.log, ctx.config, ctx.http, ctx.entities
+ * - Host functions available: ctx.log, ctx.config, ctx.http, ctx.entities, ctx.secrets
  */
 
-import type { RouteRequest, RouteResponse } from '@shoehorn/addon-sdk/backend';
+import type { RouteRequest, RouteResponse, EntityType } from '@shoehorn-dev/addon-sdk/backend';
 
 interface JiraIssue {
   key: string;
@@ -29,6 +29,15 @@ interface JiraSearchResponse {
   issues: JiraIssue[];
   total: number;
   maxResults: number;
+}
+
+interface EntityUpsert {
+  serviceId: string;
+  name: string;
+  type: EntityType;
+  description?: string;
+  tags?: string[];
+  links?: { name: string; url: string; icon?: string }[];
 }
 
 interface JiraConfig {
@@ -55,9 +64,7 @@ function getAuthHeaders(config: JiraConfig): Record<string, string> {
     'Content-Type': 'application/json',
   };
   if (config.email && config.token) {
-    const encoded = btoa(config.email + ':' + config.token);
-    ctx.log.info('Auth: email=' + config.email + ' tokenLen=' + config.token.length + ' b64Len=' + encoded.length);
-    headers['Authorization'] = 'Basic ' + encoded;
+    headers['Authorization'] = 'Basic ' + btoa(config.email + ':' + config.token);
   }
   return headers;
 }
@@ -88,7 +95,6 @@ export function handleRoute(request: RouteRequest): RouteResponse {
 }
 
 function handleListIssues(): RouteResponse {
-  // Fetch directly from Jira API (ctx.entities not yet wired in addon runtime)
   const config = getJiraConfig();
   if (!config.baseUrl) {
     return { status: 200, body: { issues: [], total: 0, error: 'jira_base_url not configured' } };
@@ -100,7 +106,7 @@ function handleListIssues(): RouteResponse {
     const url = config.baseUrl + '/rest/api/3/search/jql?jql=' + encodeURIComponent(jql) + '&maxResults=50&fields=' + fields;
     const headers = getAuthHeaders(config);
 
-    const resp = ctx.http.request('GET', url, { headers });
+    const resp = ctx.http.request<JiraSearchResponse>('GET', url, { headers });
     if (resp.status !== 200) {
       return { status: 200, body: { issues: [], total: 0, error: 'Jira API returned ' + resp.status } };
     }
@@ -154,10 +160,10 @@ export function sync(): { synced: number; total?: number; error?: string } {
     const url = config.baseUrl + '/rest/api/3/search/jql?jql=' + encodeURIComponent(jql) + '&maxResults=50&fields=' + fields;
     const headers = getAuthHeaders(config);
 
-    const resp = ctx.http.request('GET', url, { headers });
+    const resp = ctx.http.request<JiraSearchResponse>('GET', url, { headers });
 
-    ctx.log.info('URL=' + url);
-    ctx.log.info('Jira status=' + resp.status + ' bodyType=' + typeof resp.body + ' bodyKeys=' + Object.keys(resp.body || {}).join(','));
+    ctx.log.debug('URL=' + url);
+    ctx.log.debug('Jira status=' + resp.status + ' bodyType=' + typeof resp.body + ' bodyKeys=' + Object.keys(resp.body || {}).join(','));
 
     if (resp.status !== 200) {
       ctx.log.error('Jira API returned ' + resp.status);
@@ -166,12 +172,62 @@ export function sync(): { synced: number; total?: number; error?: string } {
 
     const data = resp.body;
     const issues = data.issues || [];
-    ctx.log.info('Issues found: ' + issues.length + ', isLast: ' + (data as any).isLast);
-    ctx.log.info('Jira sync complete: ' + issues.length + ' issues fetched');
-    return { synced: issues.length, total: issues.length };
+    ctx.log.debug('Issues found: ' + issues.length);
+    let synced = 0;
+
+    for (let i = 0; i < issues.length; i++) {
+      const issue = issues[i];
+      const entity: EntityUpsert = {
+        serviceId: 'jira-' + issue.key,
+        name: issue.key + ': ' + (issue.fields.summary || 'Untitled'),
+        type: 'component',
+        description: truncate(issue.fields.description || '', 4000),
+        tags: buildTags(config.project, issue),
+        links: [{
+          name: 'Jira',
+          url: config.baseUrl + '/browse/' + issue.key,
+          icon: 'Jira',
+        }],
+      };
+
+      try {
+        ctx.entities.upsert(entity);
+        synced = synced + 1;
+      } catch (e) {
+        ctx.log.error('Failed to upsert ' + issue.key);
+      }
+    }
+
+    ctx.log.info('Jira sync complete: ' + synced + '/' + issues.length + ' issues synced');
+    return { synced, total: issues.length };
   } catch (e) {
     ctx.log.error('Jira sync failed: ' + String(e));
     return { synced: 0, error: 'Sync failed: ' + String(e) };
   }
 }
 
+// --- Helpers ---
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.substring(0, max) : s;
+}
+
+function buildTags(project: string, issue: JiraIssue): string[] {
+  const tags = ['jira', project.toLowerCase()];
+  if (issue.fields.issuetype?.name) {
+    tags.push('type:' + issue.fields.issuetype.name.toLowerCase());
+  }
+  if (issue.fields.priority?.name) {
+    tags.push('priority:' + issue.fields.priority.name.toLowerCase());
+  }
+  if (issue.fields.status?.name) {
+    tags.push('status:' + issue.fields.status.name.toLowerCase());
+  }
+  if (issue.fields.assignee?.displayName) {
+    tags.push('assignee:' + issue.fields.assignee.displayName);
+  }
+  if (issue.fields.updated) {
+    tags.push('updated:' + issue.fields.updated);
+  }
+  return tags;
+}

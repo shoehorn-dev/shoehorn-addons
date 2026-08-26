@@ -10,10 +10,10 @@
  * but are implemented as plain JS with DOM manipulation.
  */
 
-import { wrapVanillaComponent } from '@shoehorn/addon-sdk/frontend';
+import { wrapVanillaComponent } from '@shoehorn-dev/addon-sdk/frontend';
 import { createWidget } from './components/JiraIssuesWidget';
 
-const JiraIssuesWidgetComponent = wrapVanillaComponent(createWidget as any);
+const JiraIssuesWidgetComponent = wrapVanillaComponent(createWidget);
 
 export const widgets = [
 	{

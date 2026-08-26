@@ -32,6 +32,7 @@ const frontendConfig = {
 
 if (isWatch) {
   await build({ ...backendConfig, plugins: [] });
+  await build({ ...frontendConfig, plugins: [] });
   console.log('Watching for changes...');
 } else {
   await build(backendConfig);

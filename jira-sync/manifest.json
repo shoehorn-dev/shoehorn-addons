@@ -17,7 +17,7 @@
     "runtime": "quickjs",
     "permissions": {
       "network": [{ "url": "https://*.atlassian.net/*" }],
-      "shoehorn": ["secrets:read"]
+      "shoehorn": ["secrets:read", "entities:read", "entities:write"]
     },
     "sync": {
       "schedule": "*/5 * * * *",

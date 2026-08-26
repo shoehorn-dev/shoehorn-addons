@@ -39,7 +39,7 @@ shoehorn addon publish --dir .
 
 ## Development
 
-Each addon depends on `@shoehorn/addon-sdk` (linked locally from `../sdk`):
+Each addon depends on `@shoehorn-dev/addon-sdk` (linked locally from `../sdk`):
 
 ```bash
 cd jira-sync
