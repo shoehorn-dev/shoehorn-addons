@@ -16,13 +16,22 @@ interface JiraIssue {
   key: string;
   fields: {
     summary: string;
-    description?: string;
+    // Jira Cloud's v3 API returns this as Atlassian Document Format, not a plain string.
+    description?: string | AdfNode;
     status?: { name: string };
     priority?: { name: string };
     issuetype?: { name: string };
     assignee?: { displayName: string };
     updated?: string;
   };
+}
+
+// Minimal Atlassian Document Format node shape -- just enough to walk the
+// tree and pull out the `text` leaves. Full ADF has many node types; this
+// only needs the plain-text content, not formatting.
+interface AdfNode {
+  text?: string;
+  content?: AdfNode[];
 }
 
 interface JiraSearchResponse {
@@ -56,6 +65,16 @@ function getJiraConfig(): JiraConfig {
     token: ctx.secrets.get('jira_api_token'),
     project: ctx.config.get('jira_project') || 'PROJ',
   };
+}
+
+// ctx.secrets.get() can throw; callers rely on config always returning.
+function safeGetJiraConfig(): JiraConfig {
+  try {
+    return getJiraConfig();
+  } catch (e) {
+    ctx.log.error('Failed to read Jira configuration: ' + String(e));
+    return { baseUrl: '', email: '', token: '', project: 'PROJ' };
+  }
 }
 
 function getAuthHeaders(config: JiraConfig): Record<string, string> {
@@ -95,7 +114,7 @@ export function handleRoute(request: RouteRequest): RouteResponse {
 }
 
 function handleListIssues(): RouteResponse {
-  const config = getJiraConfig();
+  const config = safeGetJiraConfig();
   if (!config.baseUrl) {
     return { status: 200, body: { issues: [], total: 0, error: 'jira_base_url not configured' } };
   }
@@ -112,7 +131,10 @@ function handleListIssues(): RouteResponse {
     }
 
     const data = resp.body;
-    const jiraIssues = data.issues || [];
+    if (!data || !Array.isArray(data.issues)) {
+      return { status: 200, body: { issues: [], total: 0, error: 'Unexpected Jira response shape' } };
+    }
+    const jiraIssues = data.issues;
     const issues = jiraIssues.map((issue: JiraIssue) => ({
       key: issue.key,
       summary: issue.fields.summary || 'Untitled',
@@ -132,7 +154,7 @@ function handleListIssues(): RouteResponse {
 }
 
 function handleConfigStatus(): RouteResponse {
-  const config = getJiraConfig();
+  const config = safeGetJiraConfig();
   return {
     status: 200,
     body: {
@@ -148,9 +170,12 @@ function handleConfigStatus(): RouteResponse {
 export function sync(): { synced: number; total?: number; error?: string } {
   ctx.log.info('Starting Jira sync...');
 
-  const config = getJiraConfig();
+  const config = safeGetJiraConfig();
   if (!config.baseUrl) {
-    ctx.log.error('jira_base_url not configured');
+    // Expected steady state for an installed-but-not-yet-configured addon,
+    // not an actionable failure -- logged at warn, not error, so it doesn't
+    // spam the log at error level every 5 minutes.
+    ctx.log.warn('jira_base_url not configured');
     return { synced: 0, error: 'jira_base_url not configured' };
   }
 
@@ -162,39 +187,40 @@ export function sync(): { synced: number; total?: number; error?: string } {
 
     const resp = ctx.http.request<JiraSearchResponse>('GET', url, { headers });
 
-    ctx.log.debug('URL=' + url);
-    ctx.log.debug('Jira status=' + resp.status + ' bodyType=' + typeof resp.body + ' bodyKeys=' + Object.keys(resp.body || {}).join(','));
-
     if (resp.status !== 200) {
       ctx.log.error('Jira API returned ' + resp.status);
       return { synced: 0, error: 'Jira API returned ' + resp.status };
     }
 
     const data = resp.body;
-    const issues = data.issues || [];
+    if (!data || !Array.isArray(data.issues)) {
+      ctx.log.error('Unexpected Jira response shape: bodyType=' + typeof data);
+      return { synced: 0, error: 'Unexpected Jira response shape' };
+    }
+    const issues = data.issues;
     ctx.log.debug('Issues found: ' + issues.length);
     let synced = 0;
 
     for (let i = 0; i < issues.length; i++) {
       const issue = issues[i];
-      const entity: EntityUpsert = {
-        serviceId: 'jira-' + issue.key,
-        name: issue.key + ': ' + (issue.fields.summary || 'Untitled'),
-        type: 'component',
-        description: truncate(issue.fields.description || '', 4000),
-        tags: buildTags(config.project, issue),
-        links: [{
-          name: 'Jira',
-          url: config.baseUrl + '/browse/' + issue.key,
-          icon: 'Jira',
-        }],
-      };
-
+      // Entity construction is inside the try so one malformed issue can't abort the rest of the loop.
       try {
+        const entity: EntityUpsert = {
+          serviceId: 'jira-' + issue.key,
+          name: truncateUtf8Bytes(issue.key + ': ' + (issue.fields.summary || 'Untitled'), 255),
+          type: 'component',
+          description: truncateUtf8Bytes(asText(issue.fields.description), 4096),
+          tags: buildTags(config.project, issue),
+          links: [{
+            name: 'Jira',
+            url: config.baseUrl + '/browse/' + issue.key,
+            icon: 'Jira',
+          }],
+        };
         ctx.entities.upsert(entity);
         synced = synced + 1;
       } catch (e) {
-        ctx.log.error('Failed to upsert ' + issue.key);
+        ctx.log.error('Failed to upsert ' + (issue && issue.key) + ': ' + String(e));
       }
     }
 
@@ -208,8 +234,51 @@ export function sync(): { synced: number; total?: number; error?: string } {
 
 // --- Helpers ---
 
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.substring(0, max) : s;
+// asText flattens a Jira field that may be either a plain string (Jira
+// Server) or an Atlassian Document Format object (Jira Cloud's REST v3,
+// which is what this addon calls) into plain text. A non-string, non-ADF
+// value (or none at all) becomes ''.
+function asText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    return adfToText(value as AdfNode).trim();
+  }
+  return '';
+}
+
+function adfToText(node: AdfNode): string {
+  let out = typeof node.text === 'string' ? node.text : '';
+  if (Array.isArray(node.content)) {
+    for (const child of node.content) {
+      if (child && typeof child === 'object') {
+        out += adfToText(child) + ' ';
+      }
+    }
+  }
+  return out;
+}
+
+// Truncates to maxBytes of UTF-8, not of JS string length -- the platform's
+// limits are byte-based, and the sandbox has no TextEncoder to lean on.
+function truncateUtf8Bytes(s: string, maxBytes: number): string {
+  if (typeof s !== 'string' || !s) return '';
+  let bytes = 0;
+  let i = 0;
+  for (; i < s.length; i++) {
+    const code = s.codePointAt(i) ?? 0;
+    const charBytes = code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+    if (bytes + charBytes > maxBytes) break;
+    bytes += charBytes;
+    if (code > 0xffff) i++; // surrogate pair: codePointAt already consumed 2 UTF-16 units
+  }
+  return s.substring(0, i);
+}
+
+// The platform stores tags comma-joined and splits them back apart on
+// read, so no tag may contain a comma. Applied once over the whole array
+// so no call site can accidentally skip it.
+function sanitizeTags(tags: string[]): string[] {
+  return tags.map(t => t.replace(/\s*,\s*/g, ' ').trim());
 }
 
 function buildTags(project: string, issue: JiraIssue): string[] {
@@ -229,5 +298,5 @@ function buildTags(project: string, issue: JiraIssue): string[] {
   if (issue.fields.updated) {
     tags.push('updated:' + issue.fields.updated);
   }
-  return tags;
+  return sanitizeTags(tags);
 }

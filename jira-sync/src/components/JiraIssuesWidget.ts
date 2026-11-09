@@ -2,7 +2,7 @@
  * JiraIssuesWidget - Dashboard widget using Shoehorn addon SDK styles
  */
 
-import { injectStyles, esc, timeAgo } from '@shoehorn-dev/addon-sdk/frontend';
+import { injectStyles, esc, timeAgo, badge, link, skeletons, type BadgeVariant } from '@shoehorn-dev/addon-sdk/frontend';
 
 interface JiraIssue {
 	key: string;
@@ -25,21 +25,23 @@ interface WidgetProps {
 	};
 }
 
+const PRIORITY_VARIANTS: Record<string, BadgeVariant> = {
+	highest: 'red', critical: 'red',
+	high: 'orange', medium: 'yellow',
+	low: 'green', lowest: 'green',
+};
+
+const STATUS_VARIANTS: Record<string, BadgeVariant> = {
+	done: 'green', closed: 'green',
+	'in progress': 'blue', 'in review': 'blue',
+};
+
 function priorityBadge(p: string): string {
-	const cls: Record<string, string> = {
-		highest: 'sh-badge-red', critical: 'sh-badge-red',
-		high: 'sh-badge-orange', medium: 'sh-badge-yellow',
-		low: 'sh-badge-green', lowest: 'sh-badge-green',
-	};
-	return `<span class="sh-badge ${cls[p] || 'sh-badge-gray'}">${esc(p)}</span>`;
+	return badge(p, PRIORITY_VARIANTS[p] ?? 'gray');
 }
 
 function statusBadge(s: string): string {
-	const cls: Record<string, string> = {
-		done: 'sh-badge-green', closed: 'sh-badge-green',
-		'in progress': 'sh-badge-blue', 'in review': 'sh-badge-blue',
-	};
-	return `<span class="sh-badge ${cls[s] || 'sh-badge-gray'}">${esc(s)}</span>`;
+	return badge(s, STATUS_VARIANTS[s] ?? 'gray');
 }
 
 function typeSpan(t: string): string {
@@ -53,26 +55,33 @@ export function createWidget({ target, props }: WidgetProps): { destroy: () => v
 	injectStyles();
 
 	let issues: JiraIssue[] = [];
+	let fetchError: string | null = null;
 	let sortField = 'updated';
 	let sortDir: 'asc' | 'desc' = 'desc';
 
+	function renderError(message: string): void {
+		target.innerHTML = `<div class="sh-widget"><div class="sh-error">
+			<p class="sh-error-title">Couldn't load issues</p>
+			<p class="sh-error-desc">${esc(message)}</p>
+			<button class="sh-btn" data-retry style="margin-top:8px;">Retry</button>
+		</div></div>`;
+		target.querySelector('[data-retry]')?.addEventListener('click', loadIssues);
+	}
+
 	async function loadIssues(): Promise<void> {
-		target.innerHTML = `<div class="sh-widget"><div style="padding:16px;">${
-			Array(6).fill('<div class="sh-skeleton"></div>').join('')
-		}</div></div>`;
+		target.innerHTML = `<div class="sh-widget"><div style="padding:16px;">${skeletons(6)}</div></div>`;
 		try {
 			const res = await fetch(`/api/v1/addons/${props.addonSlug}/issues`, { credentials: 'include' });
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const data = await res.json();
 			issues = data.issues ?? [];
+			// The route returns 200 even for a Jira-side failure (bad credentials,
+			// unreachable API), with the reason in `error` -- read() alone would
+			// show this as "no issues" with no indication anything is wrong.
+			fetchError = typeof data.error === 'string' ? data.error : null;
 			render();
 		} catch (err) {
-			target.innerHTML = `<div class="sh-widget"><div class="sh-error">
-				<p class="sh-error-title">Failed to load issues</p>
-				<p class="sh-error-desc">${esc(err instanceof Error ? err.message : String(err))}</p>
-				<button class="sh-btn" data-retry style="margin-top:8px;">Retry</button>
-			</div></div>`;
-			target.querySelector('[data-retry]')?.addEventListener('click', loadIssues);
+			renderError(err instanceof Error ? err.message : String(err));
 		}
 	}
 
@@ -96,10 +105,15 @@ export function createWidget({ target, props }: WidgetProps): { destroy: () => v
 	}
 
 	function render(): void {
+		if (fetchError) {
+			renderError(fetchError);
+			return;
+		}
+
 		if (issues.length === 0) {
 			target.innerHTML = `<div class="sh-widget"><div class="sh-empty">
 				<p class="sh-empty-title">No Jira issues</p>
-				<p class="sh-empty-desc">Run a sync from the addon admin page.</p>
+				<p class="sh-empty-desc">No matching issues found in this project.</p>
 			</div></div>`;
 			return;
 		}
@@ -134,7 +148,7 @@ export function createWidget({ target, props }: WidgetProps): { destroy: () => v
 						<th data-sort="updated">Updated${arrow('updated')}</th>
 					</tr></thead>
 					<tbody>${sorted.map(i => `<tr>
-						<td>${i.jiraUrl ? `<a class="sh-link" href="${esc(i.jiraUrl)}" target="_blank" rel="noopener noreferrer">${esc(i.key)}</a>` : `<span class="sh-font-medium">${esc(i.key)}</span>`}</td>
+						<td>${i.jiraUrl ? link(i.key, i.jiraUrl, { external: true }) : `<span class="sh-font-medium">${esc(i.key)}</span>`}</td>
 						<td class="sh-truncate" title="${esc(i.summary)}">${esc(i.summary)}</td>
 						<td>${i.issueType ? typeSpan(i.issueType) : ''}</td>
 						<td>${i.priority ? priorityBadge(i.priority) : ''}</td>
