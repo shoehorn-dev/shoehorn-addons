@@ -12,12 +12,7 @@ Shoehorn addon that fetches Jira issues and displays them in a dashboard widget.
 
 ## Configuration
 
-Set in the Shoehorn Admin UI (`/admin/addons/jira-sync`), or from the command line:
-
-```bash
-shoehorn addon config jira-sync --set jira_base_url=https://yourorg.atlassian.net --set jira_email=user@company.com
-shoehorn addon secret set jira-sync jira_api_token <token>
-```
+Set in the Shoehorn Admin UI (`/admin/addons/jira-sync`):
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -32,7 +27,6 @@ shoehorn addon secret set jira-sync jira_api_token <token>
 npm install
 npm run build       # dist/addon.js + dist/frontend.js
 npm run typecheck   # Verify types
-npm test            # Run the test suite
 ```
 
 ## Structure
